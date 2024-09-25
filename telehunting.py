@@ -1,5 +1,6 @@
 import asyncio
 import re
+from dotenv import load_dotenv
 import pandas as pd
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
@@ -16,6 +17,7 @@ import signal
 import os
 from datetime import datetime
 from colorama import init, Fore, Back, Style
+import uuid
 
 init(autoreset=True)
 
@@ -494,7 +496,6 @@ async def retry_with_backoff(coroutine, max_retries=5, base_delay=1, max_delay=6
             raise
 
 
-
 class BatchProcessor:
     def __init__(self, batch_size=1000, cybersecurity_sia=None):
         self.batch = []
@@ -504,7 +505,46 @@ class BatchProcessor:
         self.cybersecurity_sia = cybersecurity_sia or CybersecuritySentimentAnalyzer()
         self.all_messages_df = pd.DataFrame(columns=['Sender ID', 'Date', 'Message', 'Sentiment', 'Compound_Sentiment', 'Channel Name', 'Affiliated Channel'])
 
+        # Ensure the 'data' folder exists
+        self.data_folder = 'data'
+        if not os.path.exists(self.data_folder):
+            os.makedirs(self.data_folder)
+
+    def create_folder_for_message_date(self, message_date):
+        """
+        Create or reuse a folder inside the 'data' directory based on the date of the messages, formatted as 'YYYY_MM_DD'.
+        """
+        folder_name = os.path.join(self.data_folder, message_date.strftime('%Y_%m_%d'))  # e.g., 'data/2024_09_24'
+        
+        # Only create the folder if it doesn't already exist
+        if not os.path.exists(folder_name):
+            os.makedirs(folder_name)
+        return folder_name
+
+    def get_next_batch_number(self, folder_name):
+        """
+        Check the folder for existing batch files and find the next batch number.
+        """
+        if not os.path.exists(folder_name):
+            return 1  # If the folder doesn't exist, start from 1
+
+        files = os.listdir(folder_name)
+        batch_numbers = []
+
+        for file in files:
+            match = re.search(r'telegram_scraped_messages_batch_(\d+)', file)
+            if match:
+                batch_numbers.append(int(match.group(1)))
+
+        if batch_numbers:
+            return max(batch_numbers) + 1  # Start from the next number
+        else:
+            return 1  # Start from 1 if no files are found
+
     def add_messages(self, messages, channel_name, affiliated_channel):
+        """
+        Add messages to the batch, and save the batch when the size limit is reached.
+        """
         messages_with_info = [
             message + [channel_name, affiliated_channel if affiliated_channel else "Initial Config"]
             for message in messages
@@ -516,11 +556,23 @@ class BatchProcessor:
 
     def save_batch(self):
         if self.batch:
+            # Extract the date of the first message in the batch to create the correct folder
+            first_message_date = pd.to_datetime(self.batch[0][1])  # Assuming 'Date' is the second column
+
+            # Create or use an existing folder for the date of the first message, inside the 'data' folder
+            folder_name = self.create_folder_for_message_date(first_message_date)
+            
+            # Get the next batch number for the folder
+            self.batch_counter = self.get_next_batch_number(folder_name)
+            
+            # Convert the batch to a DataFrame
             df = pd.DataFrame(self.batch, columns=['Sender ID', 'Date', 'Message', 'Sentiment', 'Compound_Sentiment', 'Channel Name', 'Affiliated Channel'])
             df['Sentiment'] = df['Message'].apply(self.cybersecurity_sia.polarity_scores)
             df['Compound_Sentiment'] = df['Sentiment'].apply(lambda x: x['compound']).astype(float)
             
-            batch_filename = f"telegram_scraped_messages_batch_{self.batch_counter}.csv"
+            # Generate a unique filename with a batch counter and unique ID, saving to the correct folder
+            unique_id = uuid.uuid4().hex[:8]  # Short unique identifier
+            batch_filename = f"{folder_name}/telegram_scraped_messages_batch_{self.batch_counter}_{unique_id}.csv"
             df.to_csv(batch_filename, index=False)
             print_success(f"Saved batch {self.batch_counter} with {len(self.batch)} messages to {batch_filename}")
             
@@ -532,7 +584,7 @@ class BatchProcessor:
             self.all_messages_df = pd.concat([self.all_messages_df, df], ignore_index=True)
             
             self.batch = []
-            self.batch_counter += 1
+            self.batch_counter += 1  # Increment the batch counter for the next batch
 
     def generate_final_report(self):
         print_info(f"Generating final report. Total messages: {len(self.all_messages_df)}")
@@ -549,6 +601,7 @@ class BatchProcessor:
 
     def __del__(self):
         self.save_batch()  # Save any remaining messages when the object is destroyed
+
 
 # pretty much our main func at this point
 async def run_scraper(config, message_depth, channel_depth):
@@ -659,9 +712,11 @@ if __name__ == "__main__":
             print_error("Please provide a valid config file. Exiting.")
             exit(1)
 
-    API_ID = ""
-    API_HASH = ""
-    PHONE_NUMBER = ""
+    load_dotenv()
+
+    API_ID = os.getenv("TELEGRAM_API_ID")
+    API_HASH = os.getenv("TELEGRAM_API_HASH")
+    PHONE_NUMBER = os.getenv("TELEGRAM_PHONE_NUMBER")
 
     api_id = args.api_id or API_ID
     api_hash = args.api_hash or API_HASH

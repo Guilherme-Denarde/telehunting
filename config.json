@@ -1,9 +1,10 @@
 {
     "initial_channel_links": [
-      "https://t.me/",
-      "https://t.me/",
-      "https://t.me/"
+      "https://t.me/Hackingbotproo",
+      "https://t.me/CyberVolk_K",
+      "https://t.me/z3xploitchat",
+      "https://t.me/h0lyleague"
     ],
-    "message_keywords": ["hack", "carding", "malware", "exploit", "cracking"],
+    "message_keywords": ["database leak", "leak", "email", "password", "data breach", "user data", "credentials", "personal data", "credit card", "data dump", "leaked database", "password dump", "stolen data", "compromised account", "PII leak", "email dump", "leaked credentials", "financial data", "credit card leak", "breached database", "account breach", "compromised password", "SSN leak", "leaked identity"],
     "batch_size": 100
   }
